@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.local
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data and model artifacts
+data/raw/*
+data/processed/*
+data/logs/*
+data/models/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/logs/.gitkeep
+!data/models/.gitkeep
+*.pt
+*.onnx
+*.engine
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
