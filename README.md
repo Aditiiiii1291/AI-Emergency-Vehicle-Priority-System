@@ -6,7 +6,7 @@ This project simulates traffic priority decisions. It does not control real traf
 
 ## Current Status
 
-Phase 6 - Congestion Classification
+Phase 7 - Emergency Priority Engine
 
 Completed:
 
@@ -31,6 +31,9 @@ Completed:
 - Congestion classification module added
 - Configurable density-to-congestion rules added
 - Congestion CSV logging support added
+- Emergency priority engine module added
+- Configurable recommendation rules added
+- Priority action CSV logging support added
 
 ## Technology Stack
 
@@ -71,6 +74,7 @@ AI-Emergency-Vehicle-Priority-System/
       __init__.py
       congestion_classifier.py
       density_analyzer.py
+      priority_engine.py
     cv_pipeline.py
     detectors/
       __init__.py
@@ -477,6 +481,100 @@ Analyze an existing Phase 5 density log:
 python ml/analytics/congestion_classifier.py --density-log data/logs/density_analysis.csv --output-log data/logs/congestion_analysis.csv
 ```
 
+## Emergency Priority Engine
+
+Phase 7 adds a rule-based emergency priority engine in `ml/analytics/priority_engine.py`.
+
+The engine consumes:
+
+- Ambulance detection status
+- Phase 5 density result
+- Phase 6 congestion result
+
+It generates simulated recommendation actions only. It does not implement real traffic signal control, hardware integration, a Streamlit dashboard, or machine learning prediction.
+
+### Priority Actions
+
+Supported actions:
+
+```text
+NORMAL_OPERATION
+EXTEND_GREEN
+HIGH_TRAFFIC_WARNING
+EMERGENCY_PRIORITY
+```
+
+### Priority Rules
+
+Default configurable rules:
+
+```python
+PRIORITY_RULES = {
+    "emergency_present": "EMERGENCY_PRIORITY",
+    "HIGH_CONGESTION": "HIGH_TRAFFIC_WARNING",
+    "MEDIUM_CONGESTION": "EXTEND_GREEN",
+    "LOW_CONGESTION": "NORMAL_OPERATION",
+}
+```
+
+Rule behavior:
+
+```text
+Emergency vehicle present -> EMERGENCY_PRIORITY
+High congestion -> HIGH_TRAFFIC_WARNING
+Medium congestion -> EXTEND_GREEN
+Otherwise -> NORMAL_OPERATION
+```
+
+### Reusable Priority API
+
+```python
+action_result = generate_priority_action(
+    emergency_present,
+    density_result,
+    congestion_result,
+)
+```
+
+Example output:
+
+```python
+{
+    "emergency_present": True,
+    "density": "HIGH",
+    "congestion": "HIGH_CONGESTION",
+    "recommended_action": "EMERGENCY_PRIORITY",
+}
+```
+
+### Priority Overlay
+
+Use `draw_priority_overlay(frame, action_result)` to add:
+
+```text
+Recommended Action: EMERGENCY_PRIORITY
+```
+
+### Priority Logging
+
+Priority logs are written with these columns:
+
+```text
+timestamp,emergency_present,density,congestion,recommended_action
+```
+
+Generate recommendations from an existing Phase 6 congestion log:
+
+```powershell
+python ml/analytics/priority_engine.py --congestion-log data/logs/congestion_analysis.csv --output-log data/logs/priority_actions.csv
+```
+
+To simulate emergency-present recommendations for every row:
+
+```powershell
+python ml/analytics/priority_engine.py --congestion-log data/logs/congestion_analysis.csv --output-log data/logs/priority_actions.csv --emergency-present
+```
+
 ## Development Phases
 
 1. Project Setup
@@ -541,10 +639,20 @@ python ml/analytics/congestion_classifier.py --density-log data/logs/density_ana
 5. Confirm each row includes timestamp, total vehicles, density, and congestion.
 6. Import `classify_congestion` in Python and verify it returns the documented dictionary format.
 
-## Phase 7 Preview
+## Phase 7 Testing Steps
 
-Phase 7 will add the Streamlit dashboard:
+1. Install dependencies with `pip install -r requirements.txt`.
+2. Generate a Phase 6 congestion log at `data/logs/congestion_analysis.csv`.
+3. Run `python ml/analytics/priority_engine.py --congestion-log data/logs/congestion_analysis.csv --output-log data/logs/priority_actions.csv`.
+4. Confirm `data/logs/priority_actions.csv` is created.
+5. Confirm each row includes timestamp, emergency status, density, congestion, and recommended action.
+6. Import `generate_priority_action` in Python and verify it returns the documented dictionary format.
+7. Re-run with `--emergency-present` and confirm recommendations become `EMERGENCY_PRIORITY`.
+
+## Phase 8 Preview
+
+Phase 8 will add the Streamlit dashboard:
 
 - Video upload workflow
 - Display processed frames and metrics
-- Present detection, density, and congestion outputs
+- Present detection, density, congestion, and priority action outputs
