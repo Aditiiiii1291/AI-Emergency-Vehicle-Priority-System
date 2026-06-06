@@ -6,7 +6,7 @@ This project simulates traffic priority decisions. It does not control real traf
 
 ## Current Status
 
-Phase 4 - Ambulance Detection Infrastructure
+Phase 5 - Traffic Density Analysis
 
 Completed:
 
@@ -25,6 +25,9 @@ Completed:
 - Separate ambulance detector module added
 - Emergency presence helper added
 - Combined vehicle plus ambulance detection pipeline added
+- Traffic density analysis module added
+- Configurable LOW, MEDIUM, and HIGH density thresholds added
+- Density CSV logging support added
 
 ## Technology Stack
 
@@ -61,6 +64,9 @@ AI-Emergency-Vehicle-Priority-System/
   ml/
     __init__.py
     .gitkeep
+    analytics/
+      __init__.py
+      density_analyzer.py
     cv_pipeline.py
     detectors/
       __init__.py
@@ -304,6 +310,94 @@ source_video,frame_index,timestamp_seconds,class_id,class_name,confidence,xmin,y
 
 Ambulance rows use `class_name` set to `ambulance`.
 
+## Traffic Density Analysis
+
+Phase 5 adds traffic density analysis in `ml/analytics/density_analyzer.py`.
+
+The analyzer consumes Phase 3 vehicle detections or count dictionaries and calculates:
+
+- Total vehicle count
+- Car count
+- Motorcycle count
+- Bus count
+- Truck count
+- Density level: `LOW`, `MEDIUM`, or `HIGH`
+
+It is independent of Streamlit and does not implement congestion prediction, emergency priority decisions, or traffic signal control.
+
+### Density Thresholds
+
+Default configurable constants:
+
+```python
+LOW_VEHICLE_THRESHOLD = 10
+MEDIUM_VEHICLE_THRESHOLD = 25
+```
+
+Classification rules:
+
+```text
+LOW: total vehicles < 10
+MEDIUM: total vehicles < 25
+HIGH: total vehicles >= 25
+```
+
+### Reusable Density API
+
+```python
+density_result = analyze_density(vehicle_counts)
+```
+
+Example input:
+
+```python
+vehicle_counts = {
+    "car_count": 10,
+    "motorcycle_count": 4,
+    "bus_count": 2,
+    "truck_count": 2,
+}
+```
+
+Example output:
+
+```python
+{
+    "total_vehicles": 18,
+    "car_count": 10,
+    "motorcycle_count": 4,
+    "bus_count": 2,
+    "truck_count": 2,
+    "density": "MEDIUM",
+}
+```
+
+### Density Overlay
+
+Use `draw_density_overlay(frame, density_result)` to add:
+
+```text
+Density: LOW
+Density: MEDIUM
+Density: HIGH
+```
+
+The overlay also displays the total vehicle count.
+
+### Density Logging
+
+Density logs are written with these columns:
+
+```text
+source_video,frame_index,timestamp_seconds,total_vehicles,car_count,motorcycle_count,bus_count,truck_count,density
+```
+
+Analyze an existing Phase 3 detection log:
+
+```powershell
+python ml/analytics/density_analyzer.py --detections-log data/logs/vehicle_detections.csv --output-log data/logs/density_analysis.csv
+```
+
 ## Development Phases
 
 1. Project Setup
@@ -350,10 +444,19 @@ Ambulance rows use `class_name` set to `ambulance`.
 6. Confirm ambulance rows, when present, use the shared CSV log format.
 7. Confirm the frame overlay shows either `Emergency Vehicle: DETECTED` or `Emergency Vehicle: NONE`.
 
-## Phase 5 Preview
+## Phase 5 Testing Steps
 
-Phase 5 will add vehicle counting and traffic density calculation:
+1. Install dependencies with `pip install -r requirements.txt`.
+2. Generate a Phase 3 vehicle detection log at `data/logs/vehicle_detections.csv`.
+3. Run `python ml/analytics/density_analyzer.py --detections-log data/logs/vehicle_detections.csv --output-log data/logs/density_analysis.csv`.
+4. Confirm `data/logs/density_analysis.csv` is created.
+5. Confirm each row includes total count, per-class counts, and `LOW`, `MEDIUM`, or `HIGH`.
+6. Import `analyze_density` in Python and verify it returns the documented dictionary format.
 
-- Count detected vehicles per processed frame
-- Aggregate class counts
-- Apply low, medium, and high density rules
+## Phase 6 Preview
+
+Phase 6 will add congestion classification history:
+
+- Store density history over time
+- Prepare low, medium, and high congestion records
+- Keep prediction logic for a later ML phase
