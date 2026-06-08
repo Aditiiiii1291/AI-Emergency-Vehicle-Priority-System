@@ -15,6 +15,7 @@ htmlcov/
 venv/
 env/
 .validation_deps/
+.validation_tmp/
 
 # Environment files
 .env

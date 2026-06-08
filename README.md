@@ -6,7 +6,7 @@ This project simulates traffic priority decisions. It does not control real traf
 
 ## Current Status
 
-Phase 9 - Machine Learning Congestion Prediction
+Phase 10 - Historical Analytics
 
 Completed:
 
@@ -40,6 +40,8 @@ Completed:
 - Training dataset generation pipeline added
 - Scikit-Learn congestion prediction pipeline added
 - Dashboard predicted congestion card added
+- Historical analytics module added
+- Dashboard analytics filters, summary metrics, and charts added
 
 ## Technology Stack
 
@@ -83,6 +85,7 @@ AI-Emergency-Vehicle-Priority-System/
       __init__.py
       congestion_classifier.py
       density_analyzer.py
+      history_analytics.py
       priority_engine.py
     cv_pipeline.py
     detectors/
@@ -756,6 +759,93 @@ F1 score
 
 Metrics are measured only on the available generated dataset and should not be presented as real-world traffic performance.
 
+## Historical Analytics
+
+Phase 10 adds historical analytics in `ml/analytics/history_analytics.py`.
+
+The analytics module reads available CSV logs from:
+
+- Vehicle detection
+- Density analysis
+- Congestion classification
+- Priority engine
+
+It generates:
+
+- Vehicle count trends
+- Density trends
+- Congestion trends
+- Emergency event frequency
+- Recommendation frequency
+
+Reusable APIs:
+
+```python
+generate_summary(...)
+generate_trend_data(...)
+generate_event_statistics(...)
+```
+
+Dashboard section:
+
+```text
+Historical Analytics
+```
+
+Dashboard charts:
+
+- Vehicle count over time
+- Density distribution
+- Congestion distribution
+- Recommendation distribution
+
+Dashboard summary metrics:
+
+- Total analyzed records
+- Total emergency events
+- Most common congestion level
+- Most common recommendation
+
+Dashboard filters:
+
+- Date or timestamp prefix
+- Congestion level
+- Recommendation
+
+Missing log files are handled gracefully. If no logs are available, the dashboard shows a message instead of failing.
+
+CLI summary:
+
+```powershell
+python ml/analytics/history_analytics.py --logs data/logs
+```
+
+Export merged historical records:
+
+```powershell
+python ml/analytics/history_analytics.py --logs data/logs --export data/logs/history_summary.csv
+```
+
+Example summary output:
+
+```python
+{
+    "total_analyzed_records": 9,
+    "total_emergency_events": 3,
+    "most_common_congestion_level": "MEDIUM_CONGESTION",
+    "most_common_recommendation": "EMERGENCY_PRIORITY",
+}
+```
+
+## Dashboard Screenshots
+
+Recommended screenshots for GitHub and resume presentation:
+
+- Uploaded video with latest analyzed frame
+- Traffic Overview and Emergency Status cards
+- Congestion Analysis and Priority Recommendation cards
+- Historical Analytics charts and filters
+
 ## Development Phases
 
 1. Project Setup
@@ -849,10 +939,21 @@ Metrics are measured only on the available generated dataset and should not be p
 5. Launch the dashboard with `streamlit run frontend/app.py`.
 6. Confirm the dashboard shows the `Predicted Congestion` card.
 
-## Phase 10 Preview
+## Phase 10 Testing Steps
 
-Phase 10 will add analytics:
+1. Generate historical logs through the detection, density, congestion, and priority pipelines.
+2. Run `python ml/analytics/history_analytics.py --logs data/logs`.
+3. Confirm summary metrics are printed.
+4. Launch the dashboard with `streamlit run frontend/app.py`.
+5. Open the `Historical Analytics` section.
+6. Confirm vehicle count, density, congestion, and recommendation charts render.
+7. Apply date, congestion, and recommendation filters and confirm the metrics update.
 
-- Historical charts
-- Trend summaries
-- Dataset and prediction reporting views
+## Phase 11 Preview
+
+Phase 11 will add production readiness:
+
+- Logging cleanup
+- Error handling review
+- Tests
+- Final documentation polish

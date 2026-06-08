@@ -31,16 +31,23 @@ class DashboardImports:
     draw_density_overlay: Any
     draw_priority_overlay: Any
     generate_priority_action: Any
+    generate_event_statistics: Any
+    generate_summary: Any
+    generate_trend_data: Any
     get_video_metadata: Any
     is_emergency_present: Any
     iter_frames: Any
     load_congestion_model: Any
+    load_historical_records: Any
     load_ambulance_model: Any
     load_yolo_model: Any
     predict_congestion: Any
     resolve_ambulance_model_path: Any
     save_uploaded_video: Any
     should_process_frame: Any
+    filter_records: Any
+    congestion_levels: list[str]
+    recommendation_actions: list[str]
 
 
 def load_dashboard_imports() -> DashboardImports | None:
@@ -56,6 +63,15 @@ def load_dashboard_imports() -> DashboardImports | None:
             draw_density_overlay,
         )
         from ml.analytics.priority_engine import draw_priority_overlay, generate_priority_action
+        from ml.analytics.history_analytics import (
+            CONGESTION_LEVELS,
+            RECOMMENDATION_ACTIONS,
+            filter_records,
+            generate_event_statistics,
+            generate_summary,
+            generate_trend_data,
+            load_historical_records,
+        )
         from ml.cv_pipeline import get_video_metadata, iter_frames, save_uploaded_video
         from ml.detectors.ambulance_detector import (
             detect_ambulances,
@@ -86,16 +102,23 @@ def load_dashboard_imports() -> DashboardImports | None:
         draw_density_overlay=draw_density_overlay,
         draw_priority_overlay=draw_priority_overlay,
         generate_priority_action=generate_priority_action,
+        generate_event_statistics=generate_event_statistics,
+        generate_summary=generate_summary,
+        generate_trend_data=generate_trend_data,
         get_video_metadata=get_video_metadata,
         is_emergency_present=is_emergency_present,
         iter_frames=iter_frames,
         load_congestion_model=load_congestion_model,
+        load_historical_records=load_historical_records,
         load_ambulance_model=load_ambulance_model,
         load_yolo_model=load_yolo_model,
         predict_congestion=predict_congestion,
         resolve_ambulance_model_path=resolve_ambulance_model_path,
         save_uploaded_video=save_uploaded_video,
         should_process_frame=should_process_frame,
+        filter_records=filter_records,
+        congestion_levels=CONGESTION_LEVELS,
+        recommendation_actions=RECOMMENDATION_ACTIONS,
     )
 
 
@@ -306,6 +329,80 @@ def render_dashboard(results: dict[str, Any]) -> None:
         st.markdown('<p class="section-note">Run analysis to display the latest processed frame.</p>', unsafe_allow_html=True)
 
 
+def _distribution_chart(distribution: dict[str, int]) -> Any:
+    """Build a small dataframe for Streamlit bar charts."""
+
+    import pandas as pd
+
+    if not distribution:
+        return pd.DataFrame({"count": []})
+    return pd.DataFrame(
+        [{"label": label, "count": count} for label, count in distribution.items()]
+    ).set_index("label")
+
+
+def render_historical_analytics(
+    imports: DashboardImports,
+    date_filter: str | None,
+    congestion_filter: str,
+    recommendation_filter: str,
+) -> None:
+    """Render historical analytics filters, metrics, and charts."""
+
+    import pandas as pd
+
+    st.subheader("Historical Analytics")
+    records = imports.load_historical_records(PROJECT_ROOT / "data" / "logs")
+    filtered_records = imports.filter_records(
+        records,
+        date_filter=date_filter or None,
+        congestion_level=congestion_filter,
+        recommendation=recommendation_filter,
+    )
+
+    if not records:
+        st.info("No historical logs found yet. Run the detection, density, congestion, and priority pipelines to generate analytics.")
+        return
+
+    summary = imports.generate_summary(filtered_records)
+    trend_data = imports.generate_trend_data(filtered_records)
+    event_stats = imports.generate_event_statistics(filtered_records)
+
+    metric_cols = st.columns(4)
+    with metric_cols[0]:
+        render_status_card("Analyzed Records", summary["total_analyzed_records"])
+    with metric_cols[1]:
+        render_status_card("Emergency Events", summary["total_emergency_events"])
+    with metric_cols[2]:
+        render_status_card("Common Congestion", summary["most_common_congestion_level"])
+    with metric_cols[3]:
+        render_status_card("Common Recommendation", summary["most_common_recommendation"])
+
+    st.caption(f"Emergency event rate: {event_stats['emergency_rate']}")
+
+    vehicle_trend = pd.DataFrame(trend_data["vehicle_count_over_time"])
+    chart_cols = st.columns(2)
+    with chart_cols[0]:
+        st.markdown("Vehicle Count Over Time")
+        if vehicle_trend.empty:
+            st.info("No vehicle trend records match the selected filters.")
+        else:
+            st.line_chart(vehicle_trend.set_index("timestamp")["total_vehicles"])
+
+    with chart_cols[1]:
+        st.markdown("Density Distribution")
+        st.bar_chart(_distribution_chart(trend_data["density_distribution"]))
+
+    chart_cols = st.columns(2)
+    with chart_cols[0]:
+        st.markdown("Congestion Distribution")
+        st.bar_chart(_distribution_chart(trend_data["congestion_distribution"]))
+
+    with chart_cols[1]:
+        st.markdown("Recommendation Distribution")
+        st.bar_chart(_distribution_chart(trend_data["recommendation_distribution"]))
+
+
 def main() -> None:
     """Run the Streamlit dashboard."""
 
@@ -322,6 +419,13 @@ def main() -> None:
         skip_frames = st.slider("Skip frames", min_value=0, max_value=10, value=2, step=1)
         vehicle_confidence = st.slider("Vehicle confidence", min_value=0.10, max_value=0.90, value=0.35, step=0.05)
         ambulance_confidence = st.slider("Ambulance confidence", min_value=0.10, max_value=0.90, value=0.35, step=0.05)
+        st.header("Historical Filters")
+        history_date_filter = st.text_input("Date/timestamp prefix", value="")
+        history_congestion_filter = st.selectbox("Congestion level", ["ALL", "LOW_CONGESTION", "MEDIUM_CONGESTION", "HIGH_CONGESTION"])
+        history_recommendation_filter = st.selectbox(
+            "Recommendation",
+            ["ALL", "NORMAL_OPERATION", "EXTEND_GREEN", "HIGH_TRAFFIC_WARNING", "EMERGENCY_PRIORITY"],
+        )
 
     uploaded_file = st.file_uploader("Upload a traffic video", type=["mp4", "avi", "mov"])
     results = initial_results()
@@ -353,6 +457,13 @@ def main() -> None:
         st.info("Upload an mp4, avi, or mov traffic video to begin.")
 
     render_dashboard(results)
+    if imports is not None:
+        render_historical_analytics(
+            imports=imports,
+            date_filter=history_date_filter,
+            congestion_filter=history_congestion_filter,
+            recommendation_filter=history_recommendation_filter,
+        )
 
 
 if __name__ == "__main__":
