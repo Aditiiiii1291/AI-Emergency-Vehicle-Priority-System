@@ -39,6 +39,7 @@ class DashboardImports:
     analyze_lanes: Any
     default_lane_config: Any
     draw_lane_overlay: Any
+    simulate_green_corridor: Any
     get_video_metadata: Any
     is_emergency_present: Any
     iter_frames: Any
@@ -70,6 +71,7 @@ def load_dashboard_imports() -> DashboardImports | None:
         from ml.analytics.priority_engine import draw_priority_overlay, generate_priority_action
         from ml.analytics.signal_timing_engine import generate_signal_timing_recommendation
         from ml.analytics.lane_analyzer import analyze_lanes, default_lane_config, draw_lane_overlay
+        from ml.analytics.green_corridor import simulate_green_corridor
         from ml.analytics.history_analytics import (
             CONGESTION_LEVELS,
             RECOMMENDATION_ACTIONS,
@@ -116,6 +118,7 @@ def load_dashboard_imports() -> DashboardImports | None:
         analyze_lanes=analyze_lanes,
         default_lane_config=default_lane_config,
         draw_lane_overlay=draw_lane_overlay,
+        simulate_green_corridor=simulate_green_corridor,
         get_video_metadata=get_video_metadata,
         is_emergency_present=is_emergency_present,
         iter_frames=iter_frames,
@@ -212,6 +215,16 @@ def initial_results() -> dict[str, Any]:
         "signal_reason": "Low congestion detected",
         "signal_confidence_note": "Rule-based recommendation",
         "lane_results": [],
+        "green_corridor_result": {
+            "corridor_active": False,
+            "emergency_lane_id": "N/A",
+            "emergency_lane_name": "N/A",
+            "corridor_status": "INACTIVE",
+            "recommended_sequence": [],
+            "estimated_clearance_window_seconds": 0,
+            "reason": "No emergency vehicle detected",
+            "confidence_note": "Rule-based corridor simulation",
+        },
         "processed_frames": 0,
         "latest_frame": None,
         "ambulance_message": "Ambulance model not available. Using detection infrastructure only.",
@@ -333,6 +346,11 @@ def analyze_uploaded_video(
                         "recommended_green_seconds": lane_signal_result["recommended_green_seconds"],
                     }
                 )
+            green_corridor_result = imports.simulate_green_corridor(
+                enriched_lane_results,
+                action_result,
+                signal_timing_result,
+            )
 
             annotated = imports.draw_density_overlay(annotated, density_result)
             annotated = imports.draw_congestion_overlay(annotated, congestion_result)
@@ -350,6 +368,7 @@ def analyze_uploaded_video(
                 "signal_reason": signal_timing_result["reason"],
                 "signal_confidence_note": signal_timing_result["confidence_note"],
                 "lane_results": enriched_lane_results,
+                "green_corridor_result": green_corridor_result,
                 "predicted_congestion": predicted_congestion,
                 "processed_frames": results["processed_frames"] + 1,
                 "latest_frame": latest_frame,
@@ -429,6 +448,42 @@ def render_dashboard(results: dict[str, Any]) -> None:
         )
     else:
         st.markdown('<p class="section-note">Run analysis to display lane-level traffic results.</p>', unsafe_allow_html=True)
+
+    st.subheader("Emergency Green Corridor Simulation")
+    corridor_result = results.get("green_corridor_result", {})
+    corridor_cols = st.columns(3)
+    with corridor_cols[0]:
+        render_status_card("Corridor Status", corridor_result.get("corridor_status", "INACTIVE"))
+    with corridor_cols[1]:
+        render_status_card("Emergency Lane", corridor_result.get("emergency_lane_name", "N/A"))
+    with corridor_cols[2]:
+        render_status_card(
+            "Clearance Window",
+            f"{corridor_result.get('estimated_clearance_window_seconds', 0)} sec",
+        )
+    corridor_cols = st.columns(2)
+    with corridor_cols[0]:
+        render_status_card("Reason", corridor_result.get("reason", "No emergency vehicle detected"))
+    with corridor_cols[1]:
+        render_status_card("Confidence Note", corridor_result.get("confidence_note", "Rule-based corridor simulation"))
+
+    sequence = corridor_result.get("recommended_sequence", [])
+    if sequence:
+        st.dataframe(
+            [
+                {
+                    "Lane": item["lane_name"],
+                    "Action": item["action"],
+                    "Green Time": f"{item['green_seconds']} sec",
+                    "Reason": item["reason"],
+                }
+                for item in sequence
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.markdown('<p class="section-note">No emergency corridor sequence is active.</p>', unsafe_allow_html=True)
 
     if results["latest_frame"] is not None:
         st.image(results["latest_frame"], caption="Latest analyzed frame", use_container_width=True)
