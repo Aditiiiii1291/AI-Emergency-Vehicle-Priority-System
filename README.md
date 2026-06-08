@@ -6,7 +6,7 @@ This project simulates traffic priority decisions. It does not control real traf
 
 ## Current Status
 
-Phase 8 - Streamlit Dashboard
+Phase 9 - Machine Learning Congestion Prediction
 
 Completed:
 
@@ -37,6 +37,9 @@ Completed:
 - Streamlit dashboard added
 - Video upload workflow added
 - Dashboard status cards added for traffic, emergency, congestion, and priority outputs
+- Training dataset generation pipeline added
+- Scikit-Learn congestion prediction pipeline added
+- Dashboard predicted congestion card added
 
 ## Technology Stack
 
@@ -66,6 +69,8 @@ AI-Emergency-Vehicle-Priority-System/
       .gitkeep
     models/
       .gitkeep
+    datasets/
+      .gitkeep
   docs/
     .gitkeep
   frontend/
@@ -84,6 +89,10 @@ AI-Emergency-Vehicle-Priority-System/
       __init__.py
       ambulance_detector.py
       vehicle_detector.py
+    prediction/
+      __init__.py
+      congestion_predictor.py
+      dataset_builder.py
   tests/
     .gitkeep
   .gitignore
@@ -605,6 +614,7 @@ Status cards display:
 - Congestion
 - Emergency Status
 - Recommended Action
+- Predicted Congestion
 
 The dashboard connects to existing project modules:
 
@@ -613,6 +623,7 @@ The dashboard connects to existing project modules:
 - Density analyzer
 - Congestion classifier
 - Priority engine
+- Congestion predictor
 
 The ambulance detector is handled gracefully when a custom ambulance model is missing:
 
@@ -626,7 +637,124 @@ Launch command:
 streamlit run frontend/app.py
 ```
 
-The dashboard is still a simulated proof of concept. It does not implement machine learning prediction, FastAPI, hardware integration, or real traffic signal control.
+The dashboard is still a simulated proof of concept. It does not implement FastAPI, hardware integration, or real traffic signal control.
+
+After Phase 9, the dashboard can show `Predicted Congestion` when a trained model exists at:
+
+```text
+data/models/congestion_predictor.pkl
+```
+
+If the model has not been trained yet, the card shows:
+
+```text
+Model not trained
+```
+
+## Dataset Generation
+
+Pre-Phase 9 adds dataset generation in `ml/prediction/dataset_builder.py`.
+
+The builder converts historical logs into training-ready CSV files. It uses available outputs from:
+
+- Vehicle detection
+- Density analysis
+- Congestion classification
+- Priority engine
+
+Generated training datasets are saved under:
+
+```text
+data/datasets/
+```
+
+Default output:
+
+```text
+data/datasets/congestion_training_dataset.csv
+```
+
+Generated feature list:
+
+```text
+timestamp
+total_vehicles
+car_count
+motorcycle_count
+bus_count
+truck_count
+density
+congestion
+emergency_present
+recommended_action
+```
+
+Build a dataset from historical logs:
+
+```powershell
+python ml/prediction/dataset_builder.py --logs data/logs --output data/datasets/congestion_training_dataset.csv
+```
+
+If logs are missing or insufficient, the builder can create a small rule-consistent sample dataset so the ML pipeline can be tested. This sample is for pipeline validation only, not a real-world performance benchmark.
+
+## Machine Learning Congestion Prediction
+
+Phase 9 adds Scikit-Learn congestion prediction in `ml/prediction/congestion_predictor.py`.
+
+Training features:
+
+```text
+total_vehicles
+car_count
+motorcycle_count
+bus_count
+truck_count
+density
+emergency_present
+```
+
+Target variable:
+
+```text
+congestion
+```
+
+Reusable APIs:
+
+```python
+train_model(...)
+load_model(...)
+predict_congestion(...)
+```
+
+Train a model:
+
+```powershell
+python ml/prediction/congestion_predictor.py --train data/datasets/congestion_training_dataset.csv
+```
+
+The trained model is saved to:
+
+```text
+data/models/congestion_predictor.pkl
+```
+
+Run a CLI prediction:
+
+```powershell
+python ml/prediction/congestion_predictor.py --predict --total-vehicles 18 --car-count 10 --motorcycle-count 4 --bus-count 2 --truck-count 2 --density MEDIUM
+```
+
+Training reports:
+
+```text
+accuracy
+precision
+recall
+F1 score
+```
+
+Metrics are measured only on the available generated dataset and should not be presented as real-world traffic performance.
 
 ## Development Phases
 
@@ -712,10 +840,19 @@ The dashboard is still a simulated proof of concept. It does not implement machi
 6. Confirm status cards show vehicle count, density, congestion, emergency status, and recommended action.
 7. Confirm the dashboard shows the missing ambulance model message when no custom ambulance model is available.
 
-## Phase 9 Preview
+## Phase 9 Testing Steps
 
-Phase 9 will add machine learning prediction:
+1. Generate a dataset with `python ml/prediction/dataset_builder.py --logs data/logs --output data/datasets/congestion_training_dataset.csv`.
+2. Train the predictor with `python ml/prediction/congestion_predictor.py --train data/datasets/congestion_training_dataset.csv`.
+3. Confirm `data/models/congestion_predictor.pkl` is created.
+4. Run a prediction with `python ml/prediction/congestion_predictor.py --predict --total-vehicles 18 --car-count 10 --motorcycle-count 4 --bus-count 2 --truck-count 2 --density MEDIUM`.
+5. Launch the dashboard with `streamlit run frontend/app.py`.
+6. Confirm the dashboard shows the `Predicted Congestion` card.
 
-- Prepare training data from historical CSV logs
-- Train a congestion prediction model
-- Report evaluation metrics without overstating accuracy
+## Phase 10 Preview
+
+Phase 10 will add analytics:
+
+- Historical charts
+- Trend summaries
+- Dataset and prediction reporting views

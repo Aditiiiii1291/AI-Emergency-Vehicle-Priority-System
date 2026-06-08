@@ -34,8 +34,10 @@ class DashboardImports:
     get_video_metadata: Any
     is_emergency_present: Any
     iter_frames: Any
+    load_congestion_model: Any
     load_ambulance_model: Any
     load_yolo_model: Any
+    predict_congestion: Any
     resolve_ambulance_model_path: Any
     save_uploaded_video: Any
     should_process_frame: Any
@@ -62,6 +64,10 @@ def load_dashboard_imports() -> DashboardImports | None:
             resolve_ambulance_model_path,
         )
         from ml.detectors.vehicle_detector import detect_vehicles, load_yolo_model, should_process_frame
+        from ml.prediction.congestion_predictor import (
+            load_model as load_congestion_model,
+            predict_congestion,
+        )
     except ModuleNotFoundError as error:
         st.error(f"Missing dependency: {error.name}. Install dependencies with pip install -r requirements.txt.")
         return None
@@ -83,8 +89,10 @@ def load_dashboard_imports() -> DashboardImports | None:
         get_video_metadata=get_video_metadata,
         is_emergency_present=is_emergency_present,
         iter_frames=iter_frames,
+        load_congestion_model=load_congestion_model,
         load_ambulance_model=load_ambulance_model,
         load_yolo_model=load_yolo_model,
+        predict_congestion=predict_congestion,
         resolve_ambulance_model_path=resolve_ambulance_model_path,
         save_uploaded_video=save_uploaded_video,
         should_process_frame=should_process_frame,
@@ -161,6 +169,7 @@ def initial_results() -> dict[str, Any]:
         "truck_count": 0,
         "density": "LOW",
         "congestion": "LOW_CONGESTION",
+        "predicted_congestion": "Model not trained",
         "emergency_present": False,
         "recommended_action": "NORMAL_OPERATION",
         "processed_frames": 0,
@@ -181,6 +190,10 @@ def analyze_uploaded_video(
 
     metadata = imports.get_video_metadata(video_path)
     vehicle_model = imports.load_yolo_model()
+    prediction_model = None
+    model_path = PROJECT_ROOT / "data" / "models" / "congestion_predictor.pkl"
+    if model_path.exists():
+        prediction_model = imports.load_congestion_model(model_path)
 
     ambulance_model = None
     ambulance_message = "Ambulance model not available. Using detection infrastructure only."
@@ -225,6 +238,15 @@ def analyze_uploaded_video(
                 density_result=density_result,
                 congestion_result=congestion_result,
             )
+            predicted_congestion = "Model not trained"
+            if prediction_model is not None:
+                predicted_congestion = imports.predict_congestion(
+                    prediction_model,
+                    {
+                        **density_result,
+                        "emergency_present": emergency_present,
+                    },
+                )
 
             annotated = imports.draw_density_overlay(annotated, density_result)
             annotated = imports.draw_congestion_overlay(annotated, congestion_result)
@@ -235,6 +257,7 @@ def analyze_uploaded_video(
                 **density_result,
                 **congestion_result,
                 **action_result,
+                "predicted_congestion": predicted_congestion,
                 "processed_frames": results["processed_frames"] + 1,
                 "latest_frame": latest_frame,
                 "ambulance_message": ambulance_message,
@@ -272,6 +295,7 @@ def render_dashboard(results: dict[str, Any]) -> None:
         render_status_card("Density", results["density"])
     with congestion_cols[1]:
         render_status_card("Congestion", results["congestion"])
+    render_status_card("Predicted Congestion", results["predicted_congestion"])
 
     st.subheader("Priority Recommendation")
     render_status_card("Recommended Action", results["recommended_action"])
