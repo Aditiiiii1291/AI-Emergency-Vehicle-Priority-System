@@ -718,7 +718,7 @@ def main() -> None:
     configure_page()
 
     st.title("AI Emergency Vehicle Priority Dashboard")
-    st.caption(" video-based traffic monitoring and simulated priority recommendations.")
+    st.caption("Video-based traffic monitoring and simulated priority recommendations.")
 
     imports = load_dashboard_imports()
 

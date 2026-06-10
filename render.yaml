@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: ai-emergency-vehicle-priority-system
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run frontend/app.py --server.port=$PORT --server.address=0.0.0.0
