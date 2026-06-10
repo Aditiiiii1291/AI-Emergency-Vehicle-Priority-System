@@ -221,8 +221,21 @@ def _crop_frame(frame: Any, bbox: list[int]) -> Any:
 def _count_color_regions(mask: Any, min_area: int = 2) -> int:
     """Count color regions from a binary mask. Minimal area is 2 pixels for vehicle crops."""
 
+    if mask is None or not hasattr(mask, "shape") or mask.size == 0:
+        return 0
+    crop_height = mask.shape[0]
     contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    return sum(1 for contour in contours if cv2.contourArea(contour) >= min_area)
+    
+    count = 0
+    for contour in contours:
+        if cv2.contourArea(contour) >= min_area:
+            # Filter out regions located in the very bottom 25% of the vehicle crop
+            # (which are highly likely to be standard taillights, headlights, or bumper reflections)
+            x, y, w, h_rect = cv2.boundingRect(contour)
+            cy = y + h_rect / 2
+            if cy < crop_height * 0.75:
+                count += 1
+    return count
 
 
 def detect_emergency_lights(frame: Any) -> dict[str, int | float]:
@@ -245,13 +258,13 @@ def detect_emergency_lights(frame: Any) -> dict[str, int | float]:
         red_regions = _count_color_regions(red_mask)
         blue_regions = _count_color_regions(blue_mask)
 
-        # Base scoring logic
+        # Base scoring logic: either red or blue or both are active in the upper roof/grille area
         if red_regions > 0 and blue_regions > 0:
             score = min(1.0, 0.6 + 0.1 * (red_regions + blue_regions))
         elif red_regions > 0:
-            score = min(0.4, 0.1 * red_regions)
+            score = min(0.40, 0.08 * red_regions)
         elif blue_regions > 0:
-            score = min(0.5, 0.15 * blue_regions)
+            score = min(0.50, 0.15 * blue_regions)
         else:
             score = 0.0
 
@@ -297,10 +310,13 @@ def _candidate_vehicle_score(detection: Any) -> float:
 
     class_name = str(_read_attr_or_key(detection, "class_name", "")).strip().lower()
     confidence = _safe_float(_read_attr_or_key(detection, "confidence"), 0.0)
-    if class_name in {"truck", "bus", "van", "ambulance"}:
+    
+    if class_name in {"ambulance", "emergency vehicle", "emergency_vehicle"}:
+        return max(confidence, 0.85)
+    if class_name == "van":
         return max(confidence, 0.75)
-    if class_name == "car":
-        return max(confidence, 0.55)
+    if class_name in {"car", "truck", "bus"}:
+        return confidence
     return 0.0
 
 
@@ -315,15 +331,19 @@ def _visual_heuristic_score(detection: Any) -> tuple[float, list[str]]:
     if any(keyword in class_name for keyword in AMBULANCE_KEYWORDS):
         score += 0.8
         reasons.append("Ambulance keyword detected")
-    if class_name in AMBULANCE_CANDIDATE_CLASSES:
+    elif class_name == "van":
         score += 0.35
-        reasons.append("Vehicle classified as ambulance candidate")
+        reasons.append("Vehicle classified as van (potential ambulance candidate)")
+    
+    # Generic vehicles (car, truck, bus) do not get default class boost
+
     if bbox is not None:
         xmin, ymin, xmax, ymax = bbox
         width = max(0, xmax - xmin)
         height = max(0, ymax - ymin)
         aspect_ratio = width / height if height else 0.0
-        if 1.2 <= aspect_ratio <= 3.8:
+        # Ambulances typically have aspect ratio closer to box/van shape
+        if 1.2 <= aspect_ratio <= 2.2:
             score += 0.25
             reasons.append("Emergency vehicle-like shape detected")
 
@@ -334,13 +354,30 @@ def calculate_ambulance_confidence(
     vehicle_confidence: float,
     emergency_light_score: float,
     visual_heuristic_score: float,
+    class_name: str | None = None,
 ) -> float:
     """Calculate final ambulance confidence from weighted rule scores."""
 
+    c_name = str(class_name or "").strip().lower()
+    if c_name in {"ambulance", "emergency vehicle", "emergency_vehicle", "van"}:
+        w_vehicle = 0.50
+        w_light = 0.25
+        w_visual = 0.25
+    elif c_name in {"car", "bus", "truck", "motorcycle"}:
+        # Generic vehicle classes require active emergency lights to be classified as ambulance
+        w_vehicle = 0.10
+        w_light = 0.60
+        w_visual = 0.30
+    else:
+        # Fallback to default weights for backward compatibility
+        w_vehicle = CONFIDENCE_WEIGHTS["vehicle"]
+        w_light = CONFIDENCE_WEIGHTS["emergency_light"]
+        w_visual = CONFIDENCE_WEIGHTS["visual_heuristic"]
+
     confidence = (
-        CONFIDENCE_WEIGHTS["vehicle"] * max(0.0, min(1.0, vehicle_confidence))
-        + CONFIDENCE_WEIGHTS["emergency_light"] * max(0.0, min(1.0, emergency_light_score))
-        + CONFIDENCE_WEIGHTS["visual_heuristic"] * max(0.0, min(1.0, visual_heuristic_score))
+        w_vehicle * max(0.0, min(1.0, vehicle_confidence))
+        + w_light * max(0.0, min(1.0, emergency_light_score))
+        + w_visual * max(0.0, min(1.0, visual_heuristic_score))
     )
     return round(float(max(0.0, min(1.0, confidence))), 4)
 
@@ -351,6 +388,7 @@ def evaluate_ambulance_confidence(
     visual_heuristic_score: float,
     reasons: list[str] | None = None,
     min_confidence_threshold: float = MIN_AMBULANCE_CONFIDENCE,
+    class_name: str | None = None,
 ) -> dict[str, Any]:
     """Combine YOLO detection confidence, emergency light score, and visual heuristics.
 
@@ -364,7 +402,8 @@ def evaluate_ambulance_confidence(
     confidence = calculate_ambulance_confidence(
         vehicle_confidence,
         emergency_light_score,
-        visual_heuristic_score
+        visual_heuristic_score,
+        class_name=class_name,
     )
     
     detected = confidence >= min_confidence_threshold
@@ -389,6 +428,8 @@ def evaluate_ambulance_candidate(frame: Any, detection: Any) -> dict[str, object
     if bbox is None:
         return None
 
+    class_name = str(_read_attr_or_key(detection, "class_name", "")).strip().lower()
+
     vehicle_score = _candidate_vehicle_score(detection)
     if vehicle_score <= 0:
         return None
@@ -406,6 +447,7 @@ def evaluate_ambulance_candidate(frame: Any, detection: Any) -> dict[str, object
         emergency_light_score=light_score,
         visual_heuristic_score=visual_score,
         reasons=reasons,
+        class_name=class_name,
     )
 
     return {

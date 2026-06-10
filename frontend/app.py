@@ -161,6 +161,22 @@ def configure_page() -> None:
     st.markdown(
         """
         <style>
+            @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@600&display=swap');
+
+            html, body, [class*="css"], .stApp {
+                font-family: 'Calibri', 'Carlito', 'Trebuchet MS', sans-serif !important;
+            }
+
+            h1, h2, h3, h4,
+            .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+            [data-testid="stHeading"],
+            div[data-testid="stMarkdownContainer"] h1,
+            div[data-testid="stMarkdownContainer"] h2,
+            div[data-testid="stMarkdownContainer"] h3 {
+                font-family: 'Franklin Gothic Demi Cond', 'Franklin Gothic Medium Cond',
+                             'Oswald', 'Arial Narrow', sans-serif !important;
+            }
+
             .block-container {
                 padding-top: 1.5rem;
                 padding-bottom: 2rem;
@@ -171,14 +187,18 @@ def configure_page() -> None:
                 padding: 14px 16px;
                 min-height: 92px;
                 background: #ffffff;
+                margin-bottom: 12px;
             }
             .status-label {
+                font-family: 'Franklin Gothic Demi Cond', 'Franklin Gothic Medium Cond',
+                             'Oswald', 'Arial Narrow', sans-serif !important;
                 color: #4b5563;
                 font-size: 0.82rem;
                 font-weight: 600;
                 text-transform: uppercase;
             }
             .status-value {
+                font-family: 'Calibri', 'Carlito', 'Trebuchet MS', sans-serif !important;
                 color: #111827;
                 font-size: 1.35rem;
                 font-weight: 700;
@@ -186,6 +206,7 @@ def configure_page() -> None:
                 overflow-wrap: anywhere;
             }
             .section-note {
+                font-family: 'Calibri', 'Carlito', 'Trebuchet MS', sans-serif !important;
                 color: #4b5563;
                 font-size: 0.95rem;
             }
@@ -245,6 +266,10 @@ def analyze_uploaded_video(
 ) -> dict[str, Any]:
     """Run a bounded dashboard analysis pass over an uploaded video."""
 
+    import csv
+    from datetime import datetime, timedelta
+    from dataclasses import asdict
+
     metadata = imports.get_video_metadata(video_path)
     vehicle_model = imports.load_yolo_model()
     prediction_model = None
@@ -264,6 +289,17 @@ def analyze_uploaded_video(
         ambulance_message = "Multi-Signal Pipeline Active (using generic vehicle detections + HSV light detection)."
 
     results = initial_results()
+
+    # Containers for logs
+    run_start_time = datetime.now()
+    logs_dir = PROJECT_ROOT / "data" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    vehicle_det_rows = []
+    emergency_det_rows = []
+    density_rows = []
+    congestion_rows = []
+    priority_rows = []
 
     with st.spinner("Analyzing uploaded video..."):
         for frame_index, frame in imports.iter_frames(video_path):
@@ -387,6 +423,92 @@ def analyze_uploaded_video(
                 "emergency_light_score": frame_summary.get("emergency_light_score", 0.0),
                 "ambulance_reason": "; ".join(frame_summary.get("reason", [])) if frame_summary.get("reason") else "No vehicle candidates detected",
             }
+
+            # Collect log rows
+            fps = metadata.fps if metadata.fps > 0 else 30.0
+            frame_offset_seconds = frame_index / fps
+            frame_timestamp = (run_start_time + timedelta(seconds=frame_offset_seconds)).isoformat(timespec="milliseconds")
+
+            for det in vehicle_detections:
+                det_dict = asdict(det)
+                det_dict["timestamp"] = frame_timestamp
+                vehicle_det_rows.append(det_dict)
+
+            for det in ambulance_detections:
+                xmin, ymin, xmax, ymax = [int(value) for value in det["bbox"]]
+                emergency_det_rows.append({
+                    "source_video": str(video_path),
+                    "frame_index": frame_index,
+                    "timestamp_seconds": round(frame_offset_seconds, 3),
+                    "class_id": 0,
+                    "class_name": "ambulance",
+                    "confidence": det["confidence"],
+                    "xmin": xmin,
+                    "ymin": ymin,
+                    "xmax": xmax,
+                    "ymax": ymax,
+                    "box_width": max(0, xmax - xmin),
+                    "box_height": max(0, ymax - ymin),
+                    "timestamp": frame_timestamp,
+                })
+
+            density_rows.append({
+                "source_video": str(video_path),
+                "frame_index": frame_index,
+                "timestamp_seconds": round(frame_offset_seconds, 3),
+                "total_vehicles": density_result["total_vehicles"],
+                "car_count": density_result["car_count"],
+                "motorcycle_count": density_result["motorcycle_count"],
+                "bus_count": density_result["bus_count"],
+                "truck_count": density_result["truck_count"],
+                "density": density_result["density"],
+                "timestamp": frame_timestamp,
+            })
+
+            congestion_rows.append({
+                "timestamp": frame_timestamp,
+                "total_vehicles": congestion_result["total_vehicles"],
+                "density": congestion_result["density"],
+                "congestion": congestion_result["congestion"],
+            })
+
+            priority_rows.append({
+                "timestamp": frame_timestamp,
+                "emergency_present": action_result["emergency_present"],
+                "density": action_result["density"],
+                "congestion": action_result["congestion"],
+                "recommended_action": action_result["recommended_action"],
+            })
+
+    # Append collected logs to disk
+    vehicle_det_fields = [
+        "source_video", "frame_index", "timestamp_seconds", "class_id",
+        "class_name", "confidence", "xmin", "ymin", "xmax", "ymax",
+        "box_width", "box_height", "timestamp"
+    ]
+    density_fields = [
+        "source_video", "frame_index", "timestamp_seconds", "total_vehicles",
+        "car_count", "motorcycle_count", "bus_count", "truck_count", "density", "timestamp"
+    ]
+    congestion_fields = ["timestamp", "total_vehicles", "density", "congestion"]
+    priority_fields = ["timestamp", "emergency_present", "density", "congestion", "recommended_action"]
+
+    def append_rows_to_csv(file_name: str, fieldnames: list[str], rows: list[dict[str, Any]]) -> None:
+        if not rows:
+            return
+        file_path = logs_dir / file_name
+        file_exists = file_path.exists()
+        with file_path.open("a", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerows(rows)
+
+    append_rows_to_csv("vehicle_detections.csv", vehicle_det_fields, vehicle_det_rows)
+    append_rows_to_csv("emergency_detections.csv", vehicle_det_fields, emergency_det_rows)
+    append_rows_to_csv("density_analysis.csv", density_fields, density_rows)
+    append_rows_to_csv("congestion_analysis.csv", congestion_fields, congestion_rows)
+    append_rows_to_csv("priority_actions.csv", priority_fields, priority_rows)
 
     return results
 
@@ -596,7 +718,7 @@ def main() -> None:
     configure_page()
 
     st.title("AI Emergency Vehicle Priority Dashboard")
-    st.caption("Resume-focused proof of concept for video-based traffic monitoring and simulated priority recommendations.")
+    st.caption(" video-based traffic monitoring and simulated priority recommendations.")
 
     imports = load_dashboard_imports()
 
