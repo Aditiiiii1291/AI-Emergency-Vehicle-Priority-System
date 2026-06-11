@@ -157,7 +157,6 @@ Suggested screenshot gallery:
 
 ![Historical analytics dashboard](docs/screenshots/histogram.png)
 
->>>>>>> bcf9f4d (docs: add dashboard screenshots and update README)
 
 Dashboard sections:
 
